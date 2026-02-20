@@ -58,9 +58,11 @@ impl OpenAiProvider {
 
     fn build_messages(user_input: &str, system_prompt: Option<&str>) -> Vec<Message> {
         let system_content = system_prompt.unwrap_or(
-            "You are a journal assistant. Structure entries and return JSON with title, content, and tags. \
-            Title rules: 3-5 words, lowercase, hyphen-separated, ends with .md. \
-            Return ONLY valid JSON."
+            "You are a journal assistant that ONLY fixes grammar and structure. \
+            CRITICAL: NEVER translate text - keep the EXACT same language. \
+            NEVER add new information - only fix spelling and grammar. \
+            Keep ALL original meaning intact. \
+            Return JSON with title (3-5 words, lowercase, hyphen-separated, .md), content (cleaned up), tags."
         );
 
         vec![
@@ -71,12 +73,20 @@ impl OpenAiProvider {
             Message {
                 role: "user".to_string(),
                 content: format!(
-                    r#"Structure this journal entry and return JSON:
+                    r#"Fix grammar and structure this journal entry. Return JSON.
 
 Input: {}
 
+CRITICAL RULES:
+- NEVER translate - keep the EXACT same language as input
+- NEVER add new content - only fix spelling and grammar errors
+- Keep ALL original meaning and information intact
+- Title: 3-5 words describing the note, lowercase, hyphen-separated, ends with .md
+- Content: cleaned up version with better formatting (paragraphs, bullets if needed)
+- Tags: 0-3 relevant keywords from the content
+
 Return ONLY valid JSON:
-{{"title": "short-descriptive-name.md", "content": "Structured content here", "tags": ["tag1", "tag2"]}}"#,
+{{"title": "short-descriptive-name.md", "content": "Cleaned up content here", "tags": ["tag1", "tag2"]}}"#,
                     user_input
                 ),
             },
@@ -95,7 +105,7 @@ impl LlmProvider for OpenAiProvider {
         let request = OpenAiRequest {
             model: self.config.model.clone(),
             messages,
-            temperature: 0.3, // Lower temperature for more consistent formatting
+            temperature: 0.1, // Very low temperature for less creativity, more consistency
             response_format: Some(ResponseFormat {
                 type_: "json_object".to_string(),
             }),

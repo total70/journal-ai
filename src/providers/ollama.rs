@@ -16,6 +16,12 @@ struct OllamaRequest {
     system: Option<String>,
     stream: bool,
     format: Option<String>,
+    options: Option<OllamaOptions>,
+}
+
+#[derive(Debug, Serialize)]
+struct OllamaOptions {
+    temperature: f32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -33,17 +39,22 @@ impl OllamaProvider {
 
     fn build_prompt(user_input: &str) -> String {
         format!(
-            r#"Structure this journal entry and return JSON with title, content, and tags.
+            r#"Fix grammar and structure this journal entry. Return JSON with title, content, and tags.
 
 Input: {}
 
-Rules:
-- Title: 3-5 words, lowercase, hyphen-separated, ends with .md
-- Content: structured version of the input, can be expanded slightly
-- Tags: 0-3 relevant keywords
+CRITICAL RULES:
+- NEVER translate the text - keep the EXACT same language as the input
+- NEVER add new information or content not in the original
+- ONLY fix spelling mistakes and grammar errors
+- ONLY improve sentence structure and formatting
+- Keep ALL original meaning and content intact
+- Title: 3-5 words describing the note, lowercase, hyphen-separated, ends with .md
+- Content: cleaned up version of the input with better formatting (paragraphs, bullet points if needed)
+- Tags: 0-3 relevant keywords from the content
 
-Return ONLY valid JSON in this format:
-{{"title": "short-descriptive-name.md", "content": "Structured content here", "tags": ["tag1", "tag2"]}}"#,
+Return ONLY valid JSON:
+{{"title": "short-descriptive-name.md", "content": "Cleaned up content here", "tags": ["tag1", "tag2"]}}"#,
             user_input
         )
     }
@@ -60,6 +71,7 @@ impl LlmProvider for OllamaProvider {
             system: system_prompt.map(|s| s.to_string()),
             stream: false,
             format: Some("json".to_string()),
+            options: Some(OllamaOptions { temperature: 0.1 }),
         };
 
         let url = format!("{}/api/generate", self.config.base_url);
@@ -116,8 +128,9 @@ mod tests {
     #[test]
     fn test_build_prompt() {
         let prompt = OllamaProvider::build_prompt("Meeting with team");
-        assert!(prompt.contains("Structure this journal entry"));
+        assert!(prompt.contains("Fix grammar"));
         assert!(prompt.contains("Meeting with team"));
         assert!(prompt.contains("JSON"));
+        assert!(prompt.contains("NEVER translate"));
     }
 }
