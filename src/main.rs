@@ -247,18 +247,18 @@ async fn run_summarize(week: bool) -> Result<()> {
     let output = cmd.output()
         .with_context(|| "Failed to execute file-journal. Is it installed?")?;
     
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("No journal path") {
-            return Err(anyhow::anyhow!(
-                "No journal path configured. Run 'file-journal init' first."
-            ));
-        }
-        return Err(anyhow::anyhow!("file-journal failed: {}", stderr));
+    let entries_content = String::from_utf8_lossy(&output.stdout);
+    let stderr_content = String::from_utf8_lossy(&output.stderr);
+    
+    // Check for specific errors in stderr
+    if stderr_content.contains("No journal path") {
+        return Err(anyhow::anyhow!(
+            "No journal path configured. Run 'file-journal init' first."
+        ));
     }
     
-    let entries_content = String::from_utf8_lossy(&output.stdout);
-    
+    // file-journal returns exit code 1 when no entries found
+    // But we should still check stdout for any content
     if entries_content.trim().is_empty() {
         println!("No entries found.");
         return Ok(());
