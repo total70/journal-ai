@@ -47,6 +47,12 @@ enum Commands {
     Init,
     /// Check if everything is set up correctly
     Doctor,
+    /// Summarize journal entries
+    Summarize {
+        /// Summarize entries for the current week instead of today
+        #[arg(long)]
+        week: bool,
+    },
 }
 
 #[tokio::main]
@@ -62,6 +68,9 @@ async fn main() -> Result<()> {
         Some(Commands::Doctor) => {
             run_doctor().await?;
             return Ok(());
+        }
+        Some(Commands::Summarize { week }) => {
+            return run_summarize(week).await;
         }
         None => {}
     }
@@ -216,6 +225,80 @@ async fn run_doctor() -> Result<()> {
     }
 
     println!("\nDoctor check complete.");
+    Ok(())
+}
+
+async fn run_summarize(week: bool) -> Result<()> {
+    use std::process::Command;
+    
+    println!("Fetching journal entries...");
+    
+    // Get entries from file-journal
+    let mut cmd = Command::new("file-journal");
+    cmd.arg("get").arg("--format").arg("content");
+    
+    if week {
+        cmd.arg("--week");
+        println!("  Mode: This week's entries");
+    } else {
+        println!("  Mode: Today's entries");
+    }
+    
+    let output = cmd.output()
+        .with_context(|| "Failed to execute file-journal. Is it installed?")?;
+    
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("No journal path") {
+            return Err(anyhow::anyhow!(
+                "No journal path configured. Run 'file-journal init' first."
+            ));
+        }
+        return Err(anyhow::anyhow!("file-journal failed: {}", stderr));
+    }
+    
+    let entries_content = String::from_utf8_lossy(&output.stdout);
+    
+    if entries_content.trim().is_empty() {
+        println!("No entries found.");
+        return Ok(());
+    }
+    
+    // Load config for LLM
+    let config = Config::load(None)?;
+    
+    // Create provider
+    let provider: Box<dyn LlmProvider> = match config.provider.as_str() {
+        "ollama" => {
+            let provider = OllamaProvider::new(config.ollama.clone());
+            Box::new(provider)
+        }
+        "openai" => {
+            Box::new(OpenAiProvider::new(config.openai.clone())?)
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unknown provider: {}. Use 'ollama' or 'openai'",
+                config.provider
+            ));
+        }
+    };
+    
+    println!("Generating summary using {}...", config.provider);
+    
+    // Build summarize prompt
+    let period = if week { "this week" } else { "today" };
+    let prompt = format!(
+        "Summarize the following journal entries from {}. Provide a brief overview of the main topics and activities. Keep it concise (3-5 bullet points or a short paragraph).\n\nEntries:\n{}",
+        period,
+        entries_content
+    );
+    
+    let summary = provider.summarize(&prompt).await
+        .with_context(|| "Failed to generate summary")?;
+    
+    println!("\n=== Summary ===\n{}\n", summary);
+    
     Ok(())
 }
 

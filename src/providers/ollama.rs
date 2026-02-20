@@ -115,6 +115,39 @@ impl LlmProvider for OllamaProvider {
         })
     }
 
+    async fn summarize(&self, prompt: &str) -> Result<String> {
+        let request = OllamaRequest {
+            model: self.config.model.clone(),
+            prompt: prompt.to_string(),
+            system: Some("You are a helpful assistant that summarizes journal entries. Be concise and highlight key points.".to_string()),
+            stream: false,
+            format: None,
+            options: Some(OllamaOptions { temperature: 0.3 }),
+        };
+
+        let url = format!("{}/api/generate", self.config.base_url);
+        
+        let response = self.client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .with_context(|| format!("Failed to connect to Ollama at {}", self.config.base_url))?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!("Ollama API error {}: {}", status, text));
+        }
+
+        let ollama_resp: OllamaResponse = response
+            .json()
+            .await
+            .context("Failed to parse Ollama response")?;
+
+        Ok(ollama_resp.response)
+    }
+
     fn is_available(&self) -> bool {
         // Try to check if Ollama is running by making a simple request
         // Use a blocking reqwest client for the check

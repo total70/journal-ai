@@ -16,6 +16,7 @@ pub struct LlmResponse {
 #[async_trait]
 pub trait LlmProvider: Send + Sync {
     async fn generate(&self, prompt: &str, system_prompt: Option<&str>) -> Result<LlmResponse>;
+    async fn summarize(&self, prompt: &str) -> Result<String>;
     fn is_available(&self) -> bool;
 }
 

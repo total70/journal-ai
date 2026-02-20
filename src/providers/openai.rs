@@ -152,6 +152,58 @@ impl LlmProvider for OpenAiProvider {
         })
     }
 
+    async fn summarize(&self, prompt: &str) -> Result<String> {
+        let api_key = self.config.api_key.as_ref()
+            .ok_or_else(|| anyhow!("OpenAI API key not set"))?;
+
+        let messages = vec![
+            Message {
+                role: "system".to_string(),
+                content: "You are a helpful assistant that summarizes journal entries. Be concise and highlight key points.".to_string(),
+            },
+            Message {
+                role: "user".to_string(),
+                content: prompt.to_string(),
+            },
+        ];
+
+        let request = OpenAiRequest {
+            model: self.config.model.clone(),
+            messages,
+            temperature: 0.3,
+            response_format: None, // No JSON mode for summarize
+        };
+
+        let url = format!("{}/chat/completions", self.config.base_url);
+        
+        let response = self.client
+            .post(&url)
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .send()
+            .await
+            .context("Failed to connect to OpenAI API")?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let text = response.text().await.unwrap_or_default();
+            return Err(anyhow!("OpenAI API error {}: {}", status, text));
+        }
+
+        let openai_resp: OpenAiResponse = response
+            .json()
+            .await
+            .context("Failed to parse OpenAI response")?;
+
+        Ok(openai_resp.choices
+            .first()
+            .ok_or_else(|| anyhow!("No response from OpenAI"))?
+            .message
+            .content
+            .clone())
+    }
+
     fn is_available(&self) -> bool {
         self.config.api_key.is_some()
     }
