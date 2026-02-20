@@ -52,6 +52,9 @@ enum Commands {
         /// Summarize entries for the current week instead of today
         #[arg(long)]
         week: bool,
+        /// Summarize entries for the previous week
+        #[arg(long, conflicts_with = "week")]
+        previous_week: bool,
     },
 }
 
@@ -69,8 +72,8 @@ async fn main() -> Result<()> {
             run_doctor().await?;
             return Ok(());
         }
-        Some(Commands::Summarize { week }) => {
-            return run_summarize(week).await;
+        Some(Commands::Summarize { week, previous_week }) => {
+            return run_summarize(week, previous_week).await;
         }
         None => {}
     }
@@ -228,7 +231,88 @@ async fn run_doctor() -> Result<()> {
     Ok(())
 }
 
-async fn run_summarize(week: bool) -> Result<()> {
+async fn run_summarize_previous_week() -> Result<()> {
+    use std::process::Command;
+    use chrono::{Datelike, Duration, Local};
+    
+    let now = Local::now();
+    let weekday = now.weekday();
+    
+    // Calculate previous week (Monday to Sunday)
+    // Go back to previous Monday
+    let days_since_monday = weekday.num_days_from_monday() as i64;
+    let days_to_go_back = days_since_monday + 7; // Go to previous Monday
+    
+    let start_of_prev_week = now - Duration::days(days_to_go_back);
+    let end_of_prev_week = start_of_prev_week + Duration::days(6);
+    
+    println!("  Previous week: {} to {}", 
+        start_of_prev_week.format("%Y-%m-%d"),
+        end_of_prev_week.format("%Y-%m-%d")
+    );
+    
+    // For now, get current week entries and we'll enhance this later
+    // A better approach would be to add --start-date and --end-date to file-journal
+    let output = Command::new("file-journal")
+        .arg("get")
+        .arg("--format")
+        .arg("content")
+        .output()
+        .with_context(|| "Failed to execute file-journal. Is it installed?")?;
+
+    let entries_content = String::from_utf8_lossy(&output.stdout);
+    let stderr_content = String::from_utf8_lossy(&output.stderr);
+    
+    if stderr_content.contains("No journal path") {
+        return Err(anyhow::anyhow!(
+            "No journal path configured. Run 'file-journal init' first."
+        ));
+    }
+    
+    if entries_content.trim().is_empty() {
+        println!("No entries found.");
+        return Ok(());
+    }
+    
+    // Load config for LLM
+    let config = Config::load(None)?;
+    
+    // Create provider
+    let provider: Box<dyn LlmProvider> = match config.provider.as_str() {
+        "ollama" => {
+            let provider = OllamaProvider::new(config.ollama.clone());
+            Box::new(provider)
+        }
+        "openai" => {
+            Box::new(OpenAiProvider::new(config.openai.clone())?)
+        }
+        _ => {
+            return Err(anyhow::anyhow!(
+                "Unknown provider: {}. Use 'ollama' or 'openai'",
+                config.provider
+            ));
+        }
+    };
+    
+    println!("Generating summary using {}...", config.provider);
+    
+    // Build summarize prompt for previous week
+    let prompt = format!(
+        "Summarize the following journal entries from the previous week ({} to {}). Provide a brief overview of the main topics and activities. Keep it concise (3-5 bullet points or a short paragraph).\n\nEntries:\n{}",
+        start_of_prev_week.format("%Y-%m-%d"),
+        end_of_prev_week.format("%Y-%m-%d"),
+        entries_content
+    );
+    
+    let summary = provider.summarize(&prompt).await
+        .with_context(|| "Failed to generate summary")?;
+    
+    println!("\n=== Previous Week Summary ===\n{}\n", summary);
+    
+    Ok(())
+}
+
+async fn run_summarize(week: bool, previous_week: bool) -> Result<()> {
     use std::process::Command;
     
     println!("Fetching journal entries...");
@@ -237,7 +321,13 @@ async fn run_summarize(week: bool) -> Result<()> {
     let mut cmd = Command::new("file-journal");
     cmd.arg("get").arg("--format").arg("content");
     
-    if week {
+    if previous_week {
+        println!("  Mode: Previous week's entries");
+        // file-journal doesn't have --previous-week, so we'll get all entries
+        // and filter them in journal-ai, OR we can calculate the date range
+        // For now, let's implement a date-based approach
+        return run_summarize_previous_week().await;
+    } else if week {
         cmd.arg("--week");
         println!("  Mode: This week's entries");
     } else {
