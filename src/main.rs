@@ -105,13 +105,25 @@ async fn main() -> Result<()> {
     journal::check_file_journal()
         .context("file-journal check failed")?;
 
-    // Create provider
+    // Create provider with fallback logic
     let provider: Box<dyn LlmProvider> = match config.provider.as_str() {
         "ollama" => {
-            Box::new(OllamaProvider::new(config.ollama.clone()))
+            let provider = OllamaProvider::new(config.ollama.clone());
+            if !provider.is_available() {
+                eprintln!("Warning: Ollama does not appear to be available at {}", config.ollama.base_url);
+                eprintln!("Make sure Ollama is running: ollama serve");
+                eprintln!("Attempting anyway...");
+            }
+            Box::new(provider)
         }
         "openai" => {
-            Box::new(OpenAiProvider::new(config.openai.clone())?)
+            let provider = OpenAiProvider::new(config.openai.clone())?;
+            if !provider.is_available() {
+                return Err(anyhow::anyhow!(
+                    "OpenAI provider not available. Make sure OPENAI_API_KEY is set."
+                ));
+            }
+            Box::new(provider)
         }
         _ => {
             return Err(anyhow::anyhow!(

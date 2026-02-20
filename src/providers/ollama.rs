@@ -97,16 +97,15 @@ impl LlmProvider for OllamaProvider {
     }
 
     fn is_available(&self) -> bool {
-        // Try to check if Ollama is running
-        let runtime = tokio::runtime::Handle::try_current();
-        if runtime.is_err() {
-            // We're not in an async context, can't check
-            return true;
-        }
+        // Try to check if Ollama is running by making a simple request
+        // Use a blocking reqwest client for the check
+        let client = reqwest::blocking::Client::new();
+        let url = format!("{}/api/tags", self.config.base_url);
         
-        // In async context, we'd need to spawn a task
-        // For now, assume available and let generate() fail if not
-        true
+        match client.get(&url).timeout(std::time::Duration::from_secs(2)).send() {
+            Ok(resp) => resp.status().is_success(),
+            Err(_) => false,
+        }
     }
 }
 
