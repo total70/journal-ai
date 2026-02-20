@@ -39,22 +39,29 @@ impl OllamaProvider {
 
     fn build_prompt(user_input: &str) -> String {
         format!(
-            r#"Fix grammar and structure this journal entry. Return JSON with title, content, and tags.
+            r#"Fix grammar and structure this journal entry. Return JSON.
 
 Input: {}
 
-CRITICAL RULES:
-- NEVER translate the text - keep the EXACT same language as the input
-- NEVER add new information or content not in the original
-- ONLY fix spelling mistakes and grammar errors
-- ONLY improve sentence structure and formatting
-- Keep ALL original meaning and content intact
-- Title: 3-5 words describing the note, lowercase, hyphen-separated, ends with .md
-- Content: cleaned up version of the input with better formatting (paragraphs, bullet points if needed)
-- Tags: 0-3 relevant keywords from the content
+ABSOLUTE RULES - VIOLATION IS NOT ALLOWED:
+1. NEVER translate - keep EXACT same language as input
+2. NEVER add explanations, summaries, or meta-text like "here is", "note that", "summary of"
+3. NEVER add content not present in the original input
+4. NEVER describe what you did or add commentary
+5. Output ONLY the cleaned content, nothing else
 
-Return ONLY valid JSON:
-{{"title": "short-descriptive-name.md", "content": "Cleaned up content here", "tags": ["tag1", "tag2"]}}"#,
+ALLOWED changes:
+- Fix spelling errors
+- Fix grammar mistakes  
+- Add punctuation
+- Split into paragraphs or bullet points for readability
+
+Title: 3-5 words, lowercase, hyphen-separated, ends with .md
+Content: cleaned content ONLY, no added commentary
+Tags: 0-3 keywords from content
+
+Return ONLY this JSON:
+{{"title": "name.md", "content": "cleaned content", "tags": ["tag1"]}}"#,
             user_input
         )
     }
@@ -131,6 +138,7 @@ mod tests {
         assert!(prompt.contains("Fix grammar"));
         assert!(prompt.contains("Meeting with team"));
         assert!(prompt.contains("JSON"));
-        assert!(prompt.contains("NEVER translate"));
+        assert!(prompt.contains("NEVER"));
+        assert!(prompt.contains("NO added commentary") || prompt.contains("commentary"));
     }
 }

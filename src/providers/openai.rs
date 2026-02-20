@@ -58,11 +58,10 @@ impl OpenAiProvider {
 
     fn build_messages(user_input: &str, system_prompt: Option<&str>) -> Vec<Message> {
         let system_content = system_prompt.unwrap_or(
-            "You are a journal assistant that ONLY fixes grammar and structure. \
-            CRITICAL: NEVER translate text - keep the EXACT same language. \
-            NEVER add new information - only fix spelling and grammar. \
-            Keep ALL original meaning intact. \
-            Return JSON with title (3-5 words, lowercase, hyphen-separated, .md), content (cleaned up), tags."
+            "You ONLY fix grammar and formatting. \
+            NEVER translate. NEVER add commentary like 'here is' or summaries. \
+            NEVER add content not in original. \
+            Output ONLY cleaned text, nothing else."
         );
 
         vec![
@@ -73,20 +72,19 @@ impl OpenAiProvider {
             Message {
                 role: "user".to_string(),
                 content: format!(
-                    r#"Fix grammar and structure this journal entry. Return JSON.
+                    r#"Clean up this text. Fix spelling/grammar only.
 
 Input: {}
 
-CRITICAL RULES:
-- NEVER translate - keep the EXACT same language as input
-- NEVER add new content - only fix spelling and grammar errors
-- Keep ALL original meaning and information intact
-- Title: 3-5 words describing the note, lowercase, hyphen-separated, ends with .md
-- Content: cleaned up version with better formatting (paragraphs, bullets if needed)
-- Tags: 0-3 relevant keywords from the content
+RULES:
+- Same language as input
+- NO added commentary or explanations
+- NO "here is" or "summary" text
+- NO new information
+- ONLY fix errors and formatting
 
-Return ONLY valid JSON:
-{{"title": "short-descriptive-name.md", "content": "Cleaned up content here", "tags": ["tag1", "tag2"]}}"#,
+Return JSON:
+{{"title": "name.md", "content": "cleaned text only", "tags": []}}"#,
                     user_input
                 ),
             },
