@@ -309,7 +309,7 @@ async fn run_summarize_previous_week() -> Result<()> {
     
     // Build summarize prompt for previous week
     let prompt = format!(
-        "Summarize the following journal entries from the previous week ({} to {}). Provide a brief overview of the main topics and activities. Keep it concise (3-5 bullet points or a short paragraph).\n\nEntries:\n{}",
+        "Summarize the following journal entries from the previous week ({} to {}). Provide a brief overview of the main topics and activities. Keep it concise (3-5 bullet points or a short paragraph). IMPORTANT: respond in the same language as the journal entries — do not translate.\n\nEntries:\n{}",
         start_of_prev_week.format("%Y-%m-%d"),
         end_of_prev_week.format("%Y-%m-%d"),
         entries_content
@@ -390,7 +390,7 @@ async fn run_summarize(week: bool, previous_week: bool) -> Result<()> {
     // Build summarize prompt
     let period = if week { "this week" } else { "today" };
     let prompt = format!(
-        "Summarize the following journal entries from {}. Provide a brief overview of the main topics and activities. Keep it concise (3-5 bullet points or a short paragraph).\n\nEntries:\n{}",
+        "Summarize the following journal entries from {}. Provide a brief overview of the main topics and activities. Keep it concise (3-5 bullet points or a short paragraph). IMPORTANT: respond in the same language as the journal entries — do not translate.\n\nEntries:\n{}",
         period,
         entries_content
     );
