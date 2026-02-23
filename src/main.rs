@@ -251,24 +251,35 @@ async fn run_summarize_previous_week() -> Result<()> {
         end_of_prev_week.format("%Y-%m-%d")
     );
     
-    // For now, get current week entries and we'll enhance this later
-    // A better approach would be to add --start-date and --end-date to file-journal
-    let output = Command::new("file-journal")
-        .arg("get")
-        .arg("--format")
-        .arg("content")
-        .output()
-        .with_context(|| "Failed to execute file-journal. Is it installed?")?;
+    // Fetch entries for each day of the previous week
+    let mut all_entries = String::new();
+    for day_offset in 0..7 {
+        let day = start_of_prev_week + Duration::days(day_offset);
+        let output = Command::new("file-journal")
+            .arg("get")
+            .arg("--format").arg("content")
+            .arg("--day").arg(day.day().to_string())
+            .arg("--month").arg(day.month().to_string())
+            .arg("--year").arg(day.year().to_string())
+            .output()
+            .with_context(|| "Failed to execute file-journal. Is it installed?")?;
 
-    let entries_content = String::from_utf8_lossy(&output.stdout);
-    let stderr_content = String::from_utf8_lossy(&output.stderr);
-    
-    if stderr_content.contains("No journal path") {
-        return Err(anyhow::anyhow!(
-            "No journal path configured. Run 'file-journal init' first."
-        ));
+        let stderr_content = String::from_utf8_lossy(&output.stderr);
+        if stderr_content.contains("No journal path") {
+            return Err(anyhow::anyhow!(
+                "No journal path configured. Run 'file-journal init' first."
+            ));
+        }
+
+        let day_content = String::from_utf8_lossy(&output.stdout);
+        if !day_content.trim().is_empty() {
+            all_entries.push_str(&day_content);
+            all_entries.push('\n');
+        }
     }
-    
+
+    let entries_content = all_entries;
+
     if entries_content.trim().is_empty() {
         println!("No entries found.");
         return Ok(());
