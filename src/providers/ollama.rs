@@ -29,6 +29,31 @@ struct OllamaResponse {
     response: String,
 }
 
+/// Extract JSON object from a string that may contain markdown code blocks or extra text
+fn extract_json(raw: &str) -> String {
+    // Try to find JSON between ```json ... ``` or ``` ... ```
+    if let Some(start) = raw.find("```json") {
+        if let Some(end) = raw[start + 7..].find("```") {
+            return raw[start + 7..start + 7 + end].trim().to_string();
+        }
+    }
+    if let Some(start) = raw.find("```") {
+        if let Some(end) = raw[start + 3..].find("```") {
+            return raw[start + 3..start + 3 + end].trim().to_string();
+        }
+    }
+    // Try to find the first { ... } block
+    if let Some(start) = raw.find('{') {
+        if let Some(end) = raw.rfind('}') {
+            if end > start {
+                return raw[start..=end].to_string();
+            }
+        }
+    }
+    // Fallback: return as-is
+    raw.trim().to_string()
+}
+
 impl OllamaProvider {
     pub fn new(config: OllamaConfig) -> Self {
         Self {
@@ -102,8 +127,20 @@ impl LlmProvider for OllamaProvider {
             .context("Failed to parse Ollama response")?;
 
         // Parse the JSON response from the LLM
-        let llm_response: LlmResponse = serde_json::from_str(&ollama_resp.response)
-            .with_context(|| format!("Failed to parse LLM JSON response: {}", ollama_resp.response))?;
+        // Some models wrap the JSON in markdown code blocks or add extra text
+        let raw = &ollama_resp.response;
+        let json_str = extract_json(raw);
+
+        let llm_response: LlmResponse = serde_json::from_str(&json_str)
+            .with_context(|| format!("Failed to parse LLM JSON response: {}", raw))?;
+
+        // Validate: content should not contain the original prompt instructions
+        if llm_response.content.contains("ABSOLUTE RULES") || llm_response.content.contains("Return ONLY this JSON") {
+            return Err(anyhow!(
+                "LLM returned prompt instructions as content — model may not support JSON mode. Raw response: {}",
+                raw
+            ));
+        }
 
         // Sanitize the title
         let title = sanitize_title(&llm_response.title);
