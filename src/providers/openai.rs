@@ -159,7 +159,7 @@ impl LlmProvider for OpenAiProvider {
         let messages = vec![
             Message {
                 role: "system".to_string(),
-                content: "You are a helpful assistant that summarizes journal entries. Be concise and highlight key points.".to_string(),
+                content: "You are a helpful assistant that summarizes journal entries. Be concise and highlight key points. IMPORTANT: Always respond in the SAME language as the journal entries - never translate to another language.".to_string(),
             },
             Message {
                 role: "user".to_string(),

@@ -156,7 +156,7 @@ impl LlmProvider for OllamaProvider {
         let request = OllamaRequest {
             model: self.config.model.clone(),
             prompt: prompt.to_string(),
-            system: Some("You are a helpful assistant that summarizes journal entries. Be concise and highlight key points.".to_string()),
+            system: Some("You are a helpful assistant that summarizes journal entries. Be concise and highlight key points. IMPORTANT: Always respond in the SAME language as the journal entries - never translate to another language.".to_string()),
             stream: false,
             format: None,
             options: Some(OllamaOptions { temperature: 0.3 }),
