@@ -49,7 +49,7 @@ impl OpenAiProvider {
         if config.api_key.is_none() {
             return Err(anyhow!("OpenAI API key not configured. Set OPENAI_API_KEY environment variable or add to config"));
         }
-        
+
         Ok(Self {
             config,
             client: reqwest::Client::new(),
@@ -61,7 +61,7 @@ impl OpenAiProvider {
             "You ONLY fix grammar and formatting. \
             NEVER translate. NEVER add commentary like 'here is' or summaries. \
             NEVER add content not in original. \
-            Output ONLY cleaned text, nothing else."
+            Output ONLY cleaned text, nothing else.",
         );
 
         vec![
@@ -84,7 +84,23 @@ RULES:
 - ONLY fix errors and formatting
 
 Return JSON:
-{{"title": "name.md", "content": "cleaned text only", "tags": []}}"#,
+{{
+  "title": "name.md",
+  "content": "cleaned text only",
+  "tags": [],
+  "tasks": [
+    {{"text": "Call Jan about Q2 planning", "priority": "normal", "due": null}}
+  ]
+}}
+
+Tasks rules:
+- Extract explicit action items and to-dos from the input
+- Only include tasks that are clearly actionable
+- Keep task text short (1 sentence)
+- priority must be one of: low, normal, high
+- due must be null or ISO date string (YYYY-MM-DD)
+- If no tasks, return an empty array for tasks
+"#,
                     user_input
                 ),
             },
@@ -95,7 +111,10 @@ Return JSON:
 #[async_trait]
 impl LlmProvider for OpenAiProvider {
     async fn generate(&self, prompt: &str, system_prompt: Option<&str>) -> Result<LlmResponse> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or_else(|| anyhow!("OpenAI API key not set"))?;
 
         let messages = Self::build_messages(prompt, system_prompt);
@@ -110,8 +129,9 @@ impl LlmProvider for OpenAiProvider {
         };
 
         let url = format!("{}/chat/completions", self.config.base_url);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
@@ -131,7 +151,8 @@ impl LlmProvider for OpenAiProvider {
             .await
             .context("Failed to parse OpenAI response")?;
 
-        let content = openai_resp.choices
+        let content = openai_resp
+            .choices
             .first()
             .ok_or_else(|| anyhow!("No response from OpenAI"))?
             .message
@@ -149,11 +170,15 @@ impl LlmProvider for OpenAiProvider {
             title,
             content: llm_response.content,
             tags: llm_response.tags,
+            tasks: llm_response.tasks,
         })
     }
 
     async fn summarize(&self, prompt: &str) -> Result<String> {
-        let api_key = self.config.api_key.as_ref()
+        let api_key = self
+            .config
+            .api_key
+            .as_ref()
             .ok_or_else(|| anyhow!("OpenAI API key not set"))?;
 
         let messages = vec![
@@ -175,8 +200,9 @@ impl LlmProvider for OpenAiProvider {
         };
 
         let url = format!("{}/chat/completions", self.config.base_url);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(&url)
             .header("Authorization", format!("Bearer {}", api_key))
             .header("Content-Type", "application/json")
@@ -196,7 +222,8 @@ impl LlmProvider for OpenAiProvider {
             .await
             .context("Failed to parse OpenAI response")?;
 
-        Ok(openai_resp.choices
+        Ok(openai_resp
+            .choices
             .first()
             .ok_or_else(|| anyhow!("No response from OpenAI"))?
             .message

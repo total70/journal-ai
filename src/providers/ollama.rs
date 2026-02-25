@@ -86,7 +86,23 @@ Content: cleaned content ONLY, no added commentary
 Tags: 0-3 keywords from content
 
 Return ONLY this JSON:
-{{"title": "name.md", "content": "cleaned content", "tags": ["tag1"]}}"#,
+{{
+  "title": "name.md",
+  "content": "cleaned content",
+  "tags": ["tag1"],
+  "tasks": [
+    {{"text": "Call Jan about Q2 planning", "priority": "normal", "due": null}}
+  ]
+}}
+
+Tasks rules:
+- Extract explicit action items and to-dos from the input
+- Only include tasks that are clearly actionable
+- Keep task text short (1 sentence)
+- priority must be one of: low, normal, high
+- due must be null or ISO date string (YYYY-MM-DD)
+- If no tasks, return an empty array for tasks
+"#,
             user_input
         )
     }
@@ -96,7 +112,7 @@ Return ONLY this JSON:
 impl LlmProvider for OllamaProvider {
     async fn generate(&self, prompt: &str, system_prompt: Option<&str>) -> Result<LlmResponse> {
         let full_prompt = Self::build_prompt(prompt);
-        
+
         let request = OllamaRequest {
             model: self.config.model.clone(),
             prompt: full_prompt,
@@ -107,8 +123,9 @@ impl LlmProvider for OllamaProvider {
         };
 
         let url = format!("{}/api/generate", self.config.base_url);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(&url)
             .json(&request)
             .send()
@@ -135,7 +152,9 @@ impl LlmProvider for OllamaProvider {
             .with_context(|| format!("Failed to parse LLM JSON response: {}", raw))?;
 
         // Validate: content should not contain the original prompt instructions
-        if llm_response.content.contains("ABSOLUTE RULES") || llm_response.content.contains("Return ONLY this JSON") {
+        if llm_response.content.contains("ABSOLUTE RULES")
+            || llm_response.content.contains("Return ONLY this JSON")
+        {
             return Err(anyhow!(
                 "LLM returned prompt instructions as content — model may not support JSON mode. Raw response: {}",
                 raw
@@ -149,6 +168,7 @@ impl LlmProvider for OllamaProvider {
             title,
             content: llm_response.content,
             tags: llm_response.tags,
+            tasks: llm_response.tasks,
         })
     }
 
@@ -163,8 +183,9 @@ impl LlmProvider for OllamaProvider {
         };
 
         let url = format!("{}/api/generate", self.config.base_url);
-        
-        let response = self.client
+
+        let response = self
+            .client
             .post(&url)
             .json(&request)
             .send()
@@ -186,14 +207,27 @@ impl LlmProvider for OllamaProvider {
     }
 
     fn is_available(&self) -> bool {
-        // Try to check if Ollama is running by making a simple request
-        // Use a blocking reqwest client for the check
-        let client = reqwest::blocking::Client::new();
-        let url = format!("{}/api/tags", self.config.base_url);
-        
-        match client.get(&url).timeout(std::time::Duration::from_secs(2)).send() {
-            Ok(resp) => resp.status().is_success(),
-            Err(_) => false,
+        // Non-blocking availability check suitable for calling from within a Tokio runtime.
+        // We simply attempt a short TCP connect to the host:port from base_url.
+        use std::net::{TcpStream, ToSocketAddrs};
+        use std::time::Duration;
+
+        let base = self.config.base_url.trim();
+        let base = base
+            .strip_prefix("http://")
+            .or_else(|| base.strip_prefix("https://"))
+            .unwrap_or(base);
+        let host_port = base.split('/').next().unwrap_or(base);
+
+        let mut addrs_iter = match host_port.to_socket_addrs() {
+            Ok(it) => it,
+            Err(_) => return false,
+        };
+
+        if let Some(addr) = addrs_iter.next() {
+            TcpStream::connect_timeout(&addr, Duration::from_secs(2)).is_ok()
+        } else {
+            false
         }
     }
 }

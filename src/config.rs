@@ -7,10 +7,10 @@ use std::path::{Path, PathBuf};
 pub struct Config {
     #[serde(default = "default_provider")]
     pub provider: String,
-    
+
     #[serde(default)]
     pub ollama: OllamaConfig,
-    
+
     #[serde(default)]
     pub openai: OpenAiConfig,
 }
@@ -29,7 +29,7 @@ impl Default for Config {
 pub struct OllamaConfig {
     #[serde(default = "default_ollama_url")]
     pub base_url: String,
-    
+
     #[serde(default = "default_ollama_model")]
     pub model: String,
 }
@@ -38,10 +38,10 @@ pub struct OllamaConfig {
 pub struct OpenAiConfig {
     #[serde(default = "default_openai_url")]
     pub base_url: String,
-    
+
     #[serde(default = "default_openai_model")]
     pub model: String,
-    
+
     #[serde(skip_serializing)]
     pub api_key: Option<String>,
 }
@@ -92,8 +92,8 @@ impl Config {
             if path.exists() {
                 let content = fs::read_to_string(&path)
                     .with_context(|| format!("Failed to read config from {}", path.display()))?;
-                let mut config: Config = toml::from_str(&content)
-                    .with_context(|| "Failed to parse config TOML")?;
+                let mut config: Config =
+                    toml::from_str(&content).with_context(|| "Failed to parse config TOML")?;
                 config.load_api_keys();
                 return Ok(config);
             }
@@ -109,8 +109,8 @@ impl Config {
             if path.exists() {
                 let content = fs::read_to_string(&path)
                     .with_context(|| format!("Failed to read config from {}", path.display()))?;
-                let mut config: Config = toml::from_str(&content)
-                    .with_context(|| "Failed to parse config TOML")?;
+                let mut config: Config =
+                    toml::from_str(&content).with_context(|| "Failed to parse config TOML")?;
                 config.load_api_keys();
                 return Ok(config);
             }
@@ -129,7 +129,7 @@ impl Config {
                 self.openai.api_key = Some(key);
             }
         }
-        
+
         // Also check ANTHROPIC_API_KEY for future use
         if let Ok(_key) = std::env::var("ANTHROPIC_API_KEY") {
             // Could be used for Anthropic provider in future
@@ -137,23 +137,22 @@ impl Config {
     }
 
     pub fn default_config_path() -> Result<PathBuf> {
-        let home = dirs::home_dir()
-            .context("Could not determine home directory")?;
+        let home = dirs::home_dir().context("Could not determine home directory")?;
         Ok(home.join(".config").join("journal-ai").join("config.toml"))
     }
 
     pub fn init_interactive() -> Result<Self> {
         println!("Welcome to journal-ai configuration!");
         println!();
-        
+
         // Ask for default provider
         println!("Select default provider:");
         println!("1. Ollama (local, recommended for most users)");
         println!("2. OpenAI (cloud, requires API key)");
-        
+
         let mut choice = String::new();
         std::io::stdin().read_line(&mut choice)?;
-        
+
         let provider = match choice.trim() {
             "2" => "openai",
             _ => "ollama",
@@ -189,7 +188,7 @@ impl Config {
         fs::write(&config_path, toml_string)?;
 
         println!("Configuration saved to: {}", config_path.display());
-        
+
         Ok(config)
     }
 }
@@ -234,12 +233,12 @@ model = "gpt-4"
     #[test]
     fn test_load_api_key_from_env() {
         std::env::set_var("OPENAI_API_KEY", "test-key-123");
-        
+
         let mut config = Config::default();
         config.load_api_keys();
-        
+
         assert_eq!(config.openai.api_key, Some("test-key-123".to_string()));
-        
+
         std::env::remove_var("OPENAI_API_KEY");
     }
 }

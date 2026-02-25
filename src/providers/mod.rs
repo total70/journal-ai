@@ -11,6 +11,21 @@ pub struct LlmResponse {
     pub content: String,
     #[serde(default)]
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub tasks: Vec<TaskItem>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TaskItem {
+    pub text: String,
+    #[serde(default = "default_priority")]
+    pub priority: String, // low | normal | high
+    #[serde(default)]
+    pub due: Option<String>, // ISO date string YYYY-MM-DD
+}
+
+fn default_priority() -> String {
+    "normal".to_string()
 }
 
 #[async_trait]

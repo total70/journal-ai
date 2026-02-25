@@ -1,5 +1,9 @@
 /target
 Cargo.lock
+
+# generated local todos
+/todos/
+
 *.swp
 *.swo
 *~
