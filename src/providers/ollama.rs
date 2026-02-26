@@ -1,5 +1,5 @@
 use crate::config::OllamaConfig;
-use crate::providers::{sanitize_title, LlmProvider, LlmResponse};
+use crate::providers::{sanitize_title, LlmProvider, LlmResponse, TaskItem};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -106,16 +106,36 @@ Tasks rules:
             user_input
         )
     }
-}
 
-#[async_trait]
-impl LlmProvider for OllamaProvider {
-    async fn generate(&self, prompt: &str, system_prompt: Option<&str>) -> Result<LlmResponse> {
-        let full_prompt = Self::build_prompt(prompt);
+    fn build_tasks_prompt(clean_content: &str) -> String {
+        format!(
+            r#"Extract actionable tasks from the following note content. Return ONLY JSON.
 
+Content:
+{}
+
+Return ONLY this JSON:
+{{
+  \"tasks\": [
+    {{\"text\": \"Call Jan about Q2 planning\", \"priority\": \"normal\", \"due\": null}}
+  ]
+}}
+
+Rules:
+- Only include explicit action items / to-dos
+- If no tasks, return: {{\"tasks\": []}}
+- Keep task text short (1 sentence)
+- priority must be one of: low, normal, high (default normal)
+- due must be null or ISO date string (YYYY-MM-DD)
+"#,
+            clean_content
+        )
+    }
+
+    async fn call_ollama_json(&self, prompt: &str, system_prompt: Option<&str>) -> Result<String> {
         let request = OllamaRequest {
             model: self.config.model.clone(),
-            prompt: full_prompt,
+            prompt: prompt.to_string(),
             system: system_prompt.map(|s| s.to_string()),
             stream: false,
             format: Some("json".to_string()),
@@ -143,10 +163,33 @@ impl LlmProvider for OllamaProvider {
             .await
             .context("Failed to parse Ollama response")?;
 
-        // Parse the JSON response from the LLM
-        // Some models wrap the JSON in markdown code blocks or add extra text
-        let raw = &ollama_resp.response;
-        let json_str = extract_json(raw);
+        Ok(ollama_resp.response)
+    }
+
+    async fn generate_tasks(&self, clean_content: &str, system_prompt: Option<&str>) -> Result<Vec<TaskItem>> {
+        #[derive(Deserialize)]
+        struct TasksOnly {
+            tasks: Option<Vec<TaskItem>>,
+        }
+
+        let tasks_prompt = Self::build_tasks_prompt(clean_content);
+        let raw = self.call_ollama_json(&tasks_prompt, system_prompt).await?;
+        let json_str = extract_json(&raw);
+
+        let parsed: TasksOnly = serde_json::from_str(&json_str)
+            .with_context(|| format!("Failed to parse tasks JSON response: {}", raw))?;
+
+        Ok(parsed.tasks.unwrap_or_default())
+    }
+}
+
+#[async_trait]
+impl LlmProvider for OllamaProvider {
+    async fn generate(&self, prompt: &str, system_prompt: Option<&str>) -> Result<LlmResponse> {
+        let full_prompt = Self::build_prompt(prompt);
+
+        let raw = self.call_ollama_json(&full_prompt, system_prompt).await?;
+        let json_str = extract_json(&raw);
 
         let llm_response: LlmResponse = serde_json::from_str(&json_str)
             .with_context(|| format!("Failed to parse LLM JSON response: {}", raw))?;
@@ -164,11 +207,16 @@ impl LlmProvider for OllamaProvider {
         // Sanitize the title
         let title = sanitize_title(&llm_response.title);
 
+        let tasks = match self.generate_tasks(&llm_response.content, system_prompt).await {
+            Ok(t) => t,
+            Err(_) => vec![],
+        };
+
         Ok(LlmResponse {
             title,
             content: llm_response.content,
             tags: llm_response.tags,
-            tasks: llm_response.tasks,
+            tasks,
         })
     }
 
