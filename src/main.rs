@@ -6,7 +6,6 @@ mod config;
 mod journal;
 mod providers;
 mod todos;
-#[cfg(test)]
 
 use config::Config;
 use providers::{ollama::OllamaProvider, openai::OpenAiProvider, LlmProvider};
