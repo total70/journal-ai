@@ -169,6 +169,13 @@ async fn main() -> Result<()> {
         if !response.tags.is_empty() {
             println!("Tags: {}", response.tags.join(", "));
         }
+        if !response.tasks.is_empty() {
+            println!("Tasks:");
+            for task in &response.tasks {
+                let due = task.due.as_deref().unwrap_or("no due date");
+                println!("  - [{}] {} ({})", task.priority, task.text, due);
+            }
+        }
 
         if cli.dry_run {
             let result = journal::create_entry_dry_run(&response.title, &response.content)?;
