@@ -122,7 +122,9 @@ Return ONLY this JSON:
 }}
 
 Rules:
-- Only include explicit action items / to-dos
+- Extract explicit action items / to-dos
+- Also treat scheduled plans as tasks (dates, weekdays, "tomorrow", "next week", etc.), even if not written as an imperative
+- Task text MUST be in the same language as the content (never translate)
 - If no tasks, return: {{\"tasks\": []}}
 - Keep task text short (1 sentence)
 - priority must be one of: low, normal, high (default normal)
@@ -227,10 +229,74 @@ impl LlmProvider for OllamaProvider {
         // Sanitize the title
         let title = sanitize_title(&llm_response.title);
 
-        let tasks = match self.generate_tasks(&cleaned_content, system_prompt).await {
+        fn has_time_signal(s: &str) -> bool {
+            let s_l = s.to_lowercase();
+            // numeric dates (language-agnostic)
+            if s_l.contains('-') {
+                // very cheap checks
+                if s_l.chars().filter(|c| *c == '-').count() >= 2 {
+                    return true;
+                }
+            }
+            let needles = [
+                "tomorrow",
+                "next week",
+                "next month",
+                "next year",
+                "next ",
+                "monday",
+                "tuesday",
+                "wednesday",
+                "thursday",
+                "friday",
+                "saturday",
+                "sunday",
+            ];
+            needles.iter().any(|n| s_l.contains(n))
+        }
+
+        fn has_action_signal(s: &str) -> bool {
+            let s_l = s.to_lowercase();
+            let needles = [
+                "review",
+                "check",
+                "test",
+                "fix",
+                "update",
+                "revise",
+                "refactor",
+                "plan",
+                "prepare",
+                "herzien",
+                "kijken of",
+                "acceptatie",
+                "criteria",
+            ];
+            needles.iter().any(|n| s_l.contains(n))
+        }
+
+        let mut tasks = match self.generate_tasks(&cleaned_content, system_prompt).await {
             Ok(t) => t,
             Err(_) => vec![],
         };
+
+        // Conservative fallback: if the model returns 0 tasks but the note looks like scheduled work,
+        // create a single task from the first non-empty line.
+        if tasks.is_empty() && has_time_signal(&cleaned_content) && has_action_signal(&cleaned_content) {
+            let first_line = cleaned_content
+                .lines()
+                .map(|l| l.trim())
+                .find(|l| !l.is_empty() && !l.starts_with('#'))
+                .unwrap_or(cleaned_content.trim());
+
+            if !first_line.is_empty() {
+                tasks.push(TaskItem {
+                    text: first_line.to_string(),
+                    priority: "normal".to_string(),
+                    due: None,
+                });
+            }
+        }
 
         Ok(LlmResponse {
             title,
