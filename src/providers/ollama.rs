@@ -194,10 +194,30 @@ impl LlmProvider for OllamaProvider {
         let llm_response: LlmResponse = serde_json::from_str(&json_str)
             .with_context(|| format!("Failed to parse LLM JSON response: {}", raw))?;
 
-        // Validate: content should not contain the original prompt instructions
-        if llm_response.content.contains("ABSOLUTE RULES")
-            || llm_response.content.contains("Return ONLY this JSON")
-        {
+        fn strip_prompt_echo(s: &str) -> String {
+            let markers = [
+                "ABSOLUTE RULES",
+                "Return ONLY this JSON",
+                "Tasks rules:",
+                "Title:",
+                "Content:",
+                "Tags:",
+            ];
+
+            let mut cut = s.len();
+            for m in markers {
+                if let Some(i) = s.find(m) {
+                    cut = cut.min(i);
+                }
+            }
+
+            s[..cut].trim().to_string()
+        }
+
+        let cleaned_content = strip_prompt_echo(&llm_response.content);
+
+        // If we still see prompt instructions after stripping, fail loudly.
+        if cleaned_content.contains("ABSOLUTE RULES") || cleaned_content.contains("Return ONLY this JSON") {
             return Err(anyhow!(
                 "LLM returned prompt instructions as content — model may not support JSON mode. Raw response: {}",
                 raw
@@ -207,14 +227,14 @@ impl LlmProvider for OllamaProvider {
         // Sanitize the title
         let title = sanitize_title(&llm_response.title);
 
-        let tasks = match self.generate_tasks(&llm_response.content, system_prompt).await {
+        let tasks = match self.generate_tasks(&cleaned_content, system_prompt).await {
             Ok(t) => t,
             Err(_) => vec![],
         };
 
         Ok(LlmResponse {
             title,
-            content: llm_response.content,
+            content: cleaned_content,
             tags: llm_response.tags,
             tasks,
         })
