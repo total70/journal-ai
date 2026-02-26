@@ -75,7 +75,9 @@ journal-ai doctor
 
 - **Multiple LLM providers**: Ollama (local, default) or OpenAI (cloud)
 - **Automatic structuring**: AI generates title, content, and tags
+- **Automatic task extraction**: LLM extracts tasks from notes and saves them as todos
 - **File-journal integration**: Seamlessly saves to your journal
+- **Todo storage**: Todos are saved to `{journal_path}/todos/` (reads path from `~/.config/file-journal/config.toml`)
 - **Configurable**: TOML config + environment variables
 - **Fast**: Optimized for small models (3B parameters)
 
