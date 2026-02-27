@@ -1,5 +1,5 @@
 use crate::config::OpenAiConfig;
-use crate::providers::{sanitize_title, LlmProvider, LlmResponse};
+use crate::providers::{sanitize_title, LlmProvider, LlmResponse, TaskItem};
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -74,37 +74,61 @@ impl OpenAiProvider {
                 content: format!(
                     r#"Clean up this text. Fix spelling/grammar only.
 
-Input: {}
+Input: {input}
 
 RULES:
-- Same language as input
+- Same language as input (NEVER translate)
 - NO added commentary or explanations
 - NO "here is" or "summary" text
 - NO new information
 - ONLY fix errors and formatting
 
-Return JSON:
-{{
-  "title": "name.md",
-  "content": "cleaned text only",
-  "tags": [],
-  "tasks": [
-    {{"text": "Call Jan about Q2 planning", "priority": "normal", "due": null}}
-  ]
-}}
+Return JSON with these exact fields:
+- "title": 3-5 words from the content, lowercase, hyphen-separated, ends with .md (e.g. "call-jan-q2.md")
+- "content": cleaned text only, same language as input
+- "tags": 0-3 keywords
+- "tasks": actionable items extracted from input
 
 Tasks rules:
 - Extract explicit action items and to-dos from the input
+- Task text MUST be in the SAME language as the input (never translate)
 - Only include tasks that are clearly actionable
 - Keep task text short (1 sentence)
 - priority must be one of: low, normal, high
 - due must be null or ISO date string (YYYY-MM-DD)
-- If no tasks, return an empty array for tasks
+- If no tasks, return an empty array
+
+Return ONLY valid JSON, no markdown fences:
+{{"title": "short-descriptive-title.md", "content": "...", "tags": [], "tasks": []}}
 "#,
-                    user_input
+                    input = user_input
                 ),
             },
         ]
+    }
+
+    fn has_time_signal(s: &str) -> bool {
+        let s_l = s.to_lowercase();
+        if s_l.chars().filter(|c| *c == '-').count() >= 2 {
+            return true;
+        }
+        let needles = [
+            "tomorrow", "next week", "next month", "next year", "next ",
+            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
+            "morgen", "volgende week", "maandag", "dinsdag", "woensdag", "donderdag",
+            "vrijdag", "zaterdag", "zondag",
+        ];
+        needles.iter().any(|n| s_l.contains(n))
+    }
+
+    fn has_action_signal(s: &str) -> bool {
+        let s_l = s.to_lowercase();
+        let needles = [
+            "review", "check", "test", "fix", "update", "revise", "refactor",
+            "plan", "prepare", "call", "bel", "mail", "stuur", "maak", "schrijf",
+            "afspraak", "vergadering", "meeting", "rapport", "report",
+        ];
+        needles.iter().any(|n| s_l.contains(n))
     }
 }
 
@@ -159,18 +183,70 @@ impl LlmProvider for OpenAiProvider {
             .content
             .clone();
 
+        // Strip markdown fences in case the model adds them anyway
+        let json_str = {
+            let trimmed = content.trim();
+            if let Some(start) = trimmed.find("```json") {
+                if let Some(end) = trimmed[start + 7..].find("```") {
+                    trimmed[start + 7..start + 7 + end].trim().to_string()
+                } else {
+                    trimmed.to_string()
+                }
+            } else if let Some(start) = trimmed.find("```") {
+                if let Some(end) = trimmed[start + 3..].find("```") {
+                    trimmed[start + 3..start + 3 + end].trim().to_string()
+                } else {
+                    trimmed.to_string()
+                }
+            } else {
+                trimmed.to_string()
+            }
+        };
+
         // Parse the JSON response
-        let llm_response: LlmResponse = serde_json::from_str(&content)
+        let llm_response: LlmResponse = serde_json::from_str(&json_str)
             .with_context(|| format!("Failed to parse LLM JSON response: {}", content))?;
 
-        // Sanitize the title
-        let title = sanitize_title(&llm_response.title);
+        // Sanitize the title; guard against the model returning the literal example placeholder
+        let raw_title = &llm_response.title;
+        let title = if raw_title.trim().is_empty()
+            || raw_title == "name.md"
+            || raw_title == "title.md"
+            || raw_title == "short-descriptive-title.md"
+        {
+            // Derive from the first few words of the original prompt
+            let words: Vec<&str> = prompt.split_whitespace().take(5).collect();
+            sanitize_title(&words.join(" "))
+        } else {
+            sanitize_title(raw_title)
+        };
+
+        // Tasks fallback: if the model returned no tasks but the note looks like scheduled work
+        let mut tasks = llm_response.tasks;
+        if tasks.is_empty()
+            && Self::has_time_signal(&llm_response.content)
+            && Self::has_action_signal(&llm_response.content)
+        {
+            let first_line = llm_response.content
+                .lines()
+                .map(|l| l.trim())
+                .find(|l| !l.is_empty() && !l.starts_with('#'))
+                .unwrap_or(llm_response.content.trim());
+
+            if !first_line.is_empty() {
+                tasks.push(TaskItem {
+                    text: first_line.to_string(),
+                    priority: "normal".to_string(),
+                    due: None,
+                });
+            }
+        }
 
         Ok(LlmResponse {
             title,
             content: llm_response.content,
             tags: llm_response.tags,
-            tasks: llm_response.tasks,
+            tasks,
         })
     }
 
