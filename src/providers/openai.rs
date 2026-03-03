@@ -58,10 +58,9 @@ impl OpenAiProvider {
 
     fn build_messages(user_input: &str, system_prompt: Option<&str>) -> Vec<Message> {
         let system_content = system_prompt.unwrap_or(
-            "You ONLY fix grammar and formatting. \
-            NEVER translate. NEVER add commentary like 'here is' or summaries. \
-            NEVER add content not in original. \
-            Output ONLY cleaned text, nothing else.",
+            "You are a journal assistant. You clean up note text and extract structured data from it. \
+            NEVER translate — always keep the same language as the input. \
+            Return ONLY valid JSON as instructed.",
         );
 
         vec![
@@ -72,22 +71,15 @@ impl OpenAiProvider {
             Message {
                 role: "user".to_string(),
                 content: format!(
-                    r#"Clean up this text. Fix spelling/grammar only.
+                    r#"Process this journal note and return structured JSON.
 
 Input: {input}
 
-RULES:
-- Same language as input (NEVER translate)
-- NO added commentary or explanations
-- NO "here is" or "summary" text
-- NO new information
-- ONLY fix errors and formatting
-
 Return JSON with these exact fields:
 - "title": 3-5 words from the content, lowercase, hyphen-separated, ends with .md (e.g. "call-jan-q2.md")
-- "content": cleaned text only, same language as input
-- "tags": 0-3 keywords
-- "tasks": actionable items extracted from input
+- "content": cleaned text only (fix spelling/grammar if needed), SAME language as input, NO added commentary
+- "tags": 0-3 relevant keywords (lowercase, same language as input)
+- "tasks": array of actionable items extracted from the input
 
 Tasks rules:
 - Extract explicit action items and to-dos from the input
@@ -96,6 +88,8 @@ Tasks rules:
 - Keep task text short (1 sentence)
 - priority must be one of: low, normal, high
 - due must be null or ISO date string (YYYY-MM-DD)
+- If the entire note IS an action item (e.g. "Bel Jan over Q2"), include it as a task with the EXACT original text
+- Task text must be verbatim or minimally cleaned — NEVER translate or paraphrase into another language
 - If no tasks, return an empty array
 
 Return ONLY valid JSON, no markdown fences:
@@ -105,20 +99,6 @@ Return ONLY valid JSON, no markdown fences:
                 ),
             },
         ]
-    }
-
-    fn has_time_signal(s: &str) -> bool {
-        let s_l = s.to_lowercase();
-        if s_l.chars().filter(|c| *c == '-').count() >= 2 {
-            return true;
-        }
-        let needles = [
-            "tomorrow", "next week", "next month", "next year", "next ",
-            "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday",
-            "morgen", "volgende week", "maandag", "dinsdag", "woensdag", "donderdag",
-            "vrijdag", "zaterdag", "zondag",
-        ];
-        needles.iter().any(|n| s_l.contains(n))
     }
 
     fn has_action_signal(s: &str) -> bool {
@@ -221,12 +201,9 @@ impl LlmProvider for OpenAiProvider {
             sanitize_title(raw_title)
         };
 
-        // Tasks fallback: if the model returned no tasks but the note looks like scheduled work
+        // Tasks fallback: if the model returned no tasks but the note looks like actionable work
         let mut tasks = llm_response.tasks;
-        if tasks.is_empty()
-            && Self::has_time_signal(&llm_response.content)
-            && Self::has_action_signal(&llm_response.content)
-        {
+        if tasks.is_empty() && Self::has_action_signal(&llm_response.content) {
             let first_line = llm_response.content
                 .lines()
                 .map(|l| l.trim())
