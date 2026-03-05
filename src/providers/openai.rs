@@ -13,7 +13,7 @@ pub struct OpenAiProvider {
 struct OpenAiRequest {
     model: String,
     messages: Vec<Message>,
-    temperature: f32,
+// temperature: f32, // removed - some models dont support custom temp
     response_format: Option<ResponseFormat>,
 }
 
@@ -126,7 +126,6 @@ impl LlmProvider for OpenAiProvider {
         let request = OpenAiRequest {
             model: self.config.model.clone(),
             messages,
-            temperature: 0.1, // Very low temperature for less creativity, more consistency
             response_format: Some(ResponseFormat {
                 type_: "json_object".to_string(),
             }),
@@ -248,7 +247,6 @@ impl LlmProvider for OpenAiProvider {
         let request = OpenAiRequest {
             model: self.config.model.clone(),
             messages,
-            temperature: 0.3,
             response_format: None, // No JSON mode for summarize
         };
 
